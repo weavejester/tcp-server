@@ -3,13 +3,18 @@
   (:import [java.net InetAddress ServerSocket Socket SocketException]))
 
 (defrecord TcpServer
-  [server-socket handler connections])
+  [port
+   host
+   backlog
+   handler
+   socket
+   connections])
 
-(defn- socket-server [options]
+(defn- server-socket [server]
   (ServerSocket.
-   (:port options)
-   (:backlog options 50)
-   (InetAddress/getByName (:host options "127.0.0.1"))))
+   (:port server)
+   (:backlog server)
+   (InetAddress/getByName (:host server))))
 
 (defn tcp-server
   "Create a new TcpServer. Takes the following keyword arguments:
@@ -19,33 +24,49 @@
     :backlog - the maximum backlog of connections to keep (defaults to 50)"
   [& {:as options}]
   {:pre [(:port options) (:handler options)]}
-  (TcpServer. (socket-server options)
-              (:handler options)
-              (atom #{})))
+  (TcpServer.
+   (:port options)
+   (:host options "127.0.0.1")
+   (:backlog options 50)
+   (:handler options)
+   (atom nil)
+   (atom #{})))
 
 (defn close-socket [server socket]
   (swap! (:connections server) disj socket)
   (when-not (.isClosed socket)
     (.close socket)))
 
+(defn- open-server-socket [server]
+  (reset! (:socket server)
+          (server-socket server)))
+
 (defn- accept-connection
-  [{:keys [server-socket handler connections] :as server}]
-  (let [^Socket socket (.accept server-socket)]
-    (swap! connections conj socket)
+  [{:keys [handler connections socket] :as server}]
+  (let [conn (.accept @socket)]
+    (swap! connections conj conn)
     (future
-      (try (handler socket)
-           (finally (close-socket server socket))))))
+      (try (handler conn)
+           (finally (close-socket server conn))))))
+
+(defn running?
+  "True if the server is running."
+  [server]
+  (not (.isClosed @(:socket server))))
 
 (defn start
   "Start a TcpServer going."
   [server]
-  (while true
-    (try
-      (accept-connection server)
-      (catch SocketException _))))
+  (open-server-socket server)
+  (future
+    (while (running? server)
+      (try
+        (accept-connection server)
+        (catch SocketException _)))))
 
 (defn stop
   "Stop the TcpServer and close all open connections."
   [server]
-  (doseq [conn @(:connections server)]
-    (close-socket server conn)))
+  (doseq [socket @(:connections server)]
+    (close-socket server socket))
+  (.close @(:socket server)))
