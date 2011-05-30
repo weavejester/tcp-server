@@ -2,14 +2,6 @@
   "Functions for creating a threaded TCP server."
   (:import [java.net InetAddress ServerSocket Socket SocketException]))
 
-(defrecord TcpServer
-  [port
-   host
-   backlog
-   handler
-   socket
-   connections])
-
 (defn- server-socket [server]
   (ServerSocket.
    (:port server)
@@ -17,20 +9,20 @@
    (InetAddress/getByName (:host server))))
 
 (defn tcp-server
-  "Create a new TcpServer. Takes the following keyword arguments:
+  "Create a new TCP server. Takes the following keyword arguments:
     :host    - the host to bind to (defaults to 127.0.0.1)
     :port    - the port to bind to
     :handler - a function to handle incoming connections
     :backlog - the maximum backlog of connections to keep (defaults to 50)"
   [& {:as options}]
-  {:pre [(:port options) (:handler options)]}
-  (TcpServer.
-   (:port options)
-   (:host options "127.0.0.1")
-   (:backlog options 50)
-   (:handler options)
-   (atom nil)
-   (atom #{})))
+  {:pre [(:port options)
+         (:handler options)]}
+  (merge
+   {:host "127.0.0.1"
+    :backlog 50
+    :socket (atom nil)
+    :connections (atom #{})}
+   options))
 
 (defn close-socket [server socket]
   (swap! (:connections server) disj socket)
@@ -52,10 +44,11 @@
 (defn running?
   "True if the server is running."
   [server]
-  (not (.isClosed @(:socket server))))
+  (if-let [socket @(:socket server)]
+    (not (.isClosed socket))))
 
 (defn start
-  "Start a TcpServer going."
+  "Start a TCP server going."
   [server]
   (open-server-socket server)
   (future
@@ -65,7 +58,7 @@
         (catch SocketException _)))))
 
 (defn stop
-  "Stop the TcpServer and close all open connections."
+  "Stop the TCP server and close all open connections."
   [server]
   (doseq [socket @(:connections server)]
     (close-socket server socket))
