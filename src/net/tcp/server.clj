@@ -1,5 +1,6 @@
 (ns net.tcp.server
   "Functions for creating a threaded TCP server."
+  (:require [clojure.java.io :as io])
   (:import [java.net InetAddress ServerSocket Socket SocketException]))
 
 (defn- server-socket [server]
@@ -12,7 +13,8 @@
   "Create a new TCP server. Takes the following keyword arguments:
     :host    - the host to bind to (defaults to 127.0.0.1)
     :port    - the port to bind to
-    :handler - a function to handle incoming connections
+    :handler - a function to handle incoming connections, expects a socket as
+               an argument
     :backlog - the maximum backlog of connections to keep (defaults to 50)"
   [& {:as options}]
   {:pre [(:port options)
@@ -63,3 +65,22 @@
   (doseq [socket @(:connections server)]
     (close-socket server socket))
   (.close @(:socket server)))
+
+(defn wrap-streams
+  "Wrap a handler so that it expects an InputStream and an OutputStream
+  as arguments, rather than a raw Socket."
+  [handler]
+  (fn [socket]
+    (with-open [input  (.getInputStream socket)
+                output (.getOutputStream socket)]
+      (handler input output))))
+
+(defn wrap-io
+  "Wrap a handler so that it expects a Reader and Writer as arguments, rather
+  than a raw Socket."
+  [handler]
+  (wrap-streams
+   (fn [input output]
+     (with-open [reader (io/reader input)
+                 writer (io/writer output)]
+       (handler reader writer)))))
